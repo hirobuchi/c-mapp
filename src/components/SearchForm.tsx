@@ -10,9 +10,14 @@ export type SearchFormProps = {
 }
 
 export const SearchForm: React.FC<SearchFormProps> = (props) => {
+    const handleSubmit = (event: React.FormEvent) => {
+        event.preventDefault();
+        props.search();
+    };
+
     return (
         <Container>
-            <BaseForm style={{margin: 10}}>
+            <BaseForm style={{margin: 10}} onSubmit={handleSubmit}>
                 <Row>
                     <Col>
                         <BaseForm.Control
