@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      security-events: write   # ★必須
+      security-events: write
 
     steps:
       - uses: actions/checkout@v4
@@ -31,7 +31,6 @@ jobs:
           severity-cutoff: high
           fail-build: false
           output-format: sarif
-          upload-sarif: true
 
   security-gate:
     needs: sbom-scan
