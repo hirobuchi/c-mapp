@@ -27,6 +27,7 @@ jobs:
       - name: Generate SBOM
         run: npx @cyclonedx/cyclonedx-npm --output-file sbom.json
 
+      - name: Scan SBOM with Grype (all vulnerabilities)
         id: grype-scan
         run: |
           echo "Scanning SBOM for all vulnerabilities"
