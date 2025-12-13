@@ -3,7 +3,9 @@ name: Frontend SBOM
 on:
   pull_request:
   push:
-    branches: [ main ]
+    branches: [ master, main ]
+  schedule:
+    - cron: '0 0 * * *'
 
 jobs:
   sbom-scan:
@@ -39,13 +41,13 @@ jobs:
             echo "vulnerable=false" >> $GITHUB_OUTPUT
           fi
 
-          # Export table content for PR comment
+          # Export table content for PR comment or log
           echo "grype_table<<EOF" >> $GITHUB_OUTPUT
           cat grype-table.txt >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Post PR comment with vulnerabilities
-        if: always()
+        if: github.event_name == 'pull_request'
         uses: peter-evans/create-or-update-comment@v5
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
