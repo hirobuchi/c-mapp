@@ -31,6 +31,7 @@ jobs:
           severity-cutoff: high
           fail-build: false
           output-format: sarif
+          only-fixed: true
 
       - name: Scan SBOM With Grype (table output)
         run: |
