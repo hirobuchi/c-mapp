@@ -27,23 +27,30 @@ jobs:
       - name: Generate SBOM
         run: npx @cyclonedx/cyclonedx-npm --output-file sbom.json
 
-      - name: Scan SBOM with Grype (only-fixed, table)
+      - name: Scan SBOM with Grype
         id: grype-scan
         run: |
-          echo "Scanning SBOM for vulnerabilities (only FIXED-IN)"
-          grype sbom:sbom.json -o table --only-fixed > grype-table.txt || true
-          cat grype-table.txt
+          echo "Scanning SBOM for vulnerabilities"
 
-          # Check if High/Critical FIXED-IN found
-          if grep -q -E 'High|Critical' grype-table.txt; then
+          # JSON出力
+          grype sbom:sbom.json -o json > grype.json || true
+
+          # CI fail 判定用：High/Critical + FIXED-IN あり
+          FIXED_PRESENT=$(jq '[.matches[] | select(.vulnerability.severity | test("High|Critical")) | select(.vulnerability.fixedIn != null)] | length' grype.json)
+          if [ "$FIXED_PRESENT" -gt 0 ]; then
             echo "vulnerable=true" >> $GITHUB_OUTPUT
           else
             echo "vulnerable=false" >> $GITHUB_OUTPUT
           fi
 
-          # Export table content for PR comment or log
+          # PRコメント用：High/Criticalすべて（FIXED-IN あり/なし）
+          echo "| NAME | INSTALLED | FIXED-IN | TYPE | VULNERABILITY | SEVERITY |" > grype-table.md
+          echo "|------|----------|----------|------|---------------|----------|" >> grype-table.md
+          jq -r '.matches[] | select(.vulnerability.severity | test("High|Critical")) |
+            "| \(.artifact.name) | \(.artifact.version) | \(.vulnerability.fixedIn // "-") | \(.artifact.type) | [\(.vulnerability.id)](https://github.com/advisories/\(.vulnerability.id)) | \(.vulnerability.severity) |"' grype.json >> grype-table.md
+
           echo "grype_table<<EOF" >> $GITHUB_OUTPUT
-          cat grype-table.txt >> $GITHUB_OUTPUT
+          cat grype-table.md >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Post PR comment with vulnerabilities
@@ -53,7 +60,11 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           issue-number: ${{ github.event.pull_request.number }}
           body: |
-            ### SBOM Vulnerability Scan Results (High/Critical, only FIXED-IN)
+            ### SBOM Vulnerability Scan Results (High/Critical)
+
+            **Note:**  
+            - CI fail occurs only for vulnerabilities with a known FIXED-IN version  
+            - Vulnerabilities without a FIXED-IN version are shown for visibility
 
             ```
             ${{ steps.grype-scan.outputs.grype_table }}
