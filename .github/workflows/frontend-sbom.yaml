@@ -29,16 +29,15 @@ jobs:
         with:
           sbom: sbom.json
           severity-cutoff: high
-          fail-build: false              # ★ここでは落とさない
+          fail-build: false
           output-format: sarif
-          output-file: results.sarif
+          output-sarif: true
 
       - name: Upload SARIF to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: results.sarif
 
-  # ② 脆弱性があることを理由に CI を失敗させる Job
   security-gate:
     needs: sbom-scan
     runs-on: ubuntu-latest
