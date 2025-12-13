@@ -32,6 +32,10 @@ jobs:
           fail-build: false
           output-format: sarif
 
+      - name: Scan SBOM With Grype (table output)
+        run: |
+          grype sbom:sbom.json -o table --fail-on high || true
+
   security-gate:
     needs: sbom-scan
     runs-on: ubuntu-latest
