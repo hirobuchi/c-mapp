@@ -31,12 +31,18 @@ jobs:
           echo "Scanning SBOM for vulnerabilities (only FIXED-IN)"
           grype sbom:sbom.json -o table --only-fixed > grype-table.txt || true
           cat grype-table.txt
-          # Check if High/Critical found
+
+          # Check if High/Critical FIXED-IN found
           if grep -q -E 'High|Critical' grype-table.txt; then
             echo "vulnerable=true" >> $GITHUB_OUTPUT
           else
             echo "vulnerable=false" >> $GITHUB_OUTPUT
           fi
+
+          # Export table content for PR comment
+          echo "grype_table<<EOF" >> $GITHUB_OUTPUT
+          cat grype-table.txt >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Post PR comment with vulnerabilities
         if: always()
@@ -47,9 +53,9 @@ jobs:
           body: |
             ### SBOM Vulnerability Scan Results (High/Critical, only FIXED-IN)
 
-            \`\`\`
-            $(cat grype-table.txt)
-            \`\`\`
+            ```
+            ${{ steps.grype-scan.outputs.grype_table }}
+            ```
 
   security-gate:
     needs: sbom-scan
