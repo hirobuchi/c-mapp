@@ -20,4 +20,10 @@ jobs:
 
       - name: Generate SBOM
         run: npx @cyclonedx/cyclonedx-npm --output-file sbom.json
-        
+ 
+      - name: Scan SBOM with Grype
+        uses: anchore/scan-action@v4
+        with:
+          sbom: sbom.json
+          severity-cutoff: high
+          fail-build: true
