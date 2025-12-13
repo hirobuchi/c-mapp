@@ -53,5 +53,13 @@
     "@vitejs/plugin-react": "^4.7.0",
     "eslint-plugin-react": "^7.37.5",
     "vite": "^6.4.1"
+  },
+    "overrides": {
+      "@babel/compat-data": "^7.28.10",
+      "gen-mapping": "^0.3.14",
+      "@babel/helper-compilation-targets": "^7.28.10",
+      "@babel/helper-plugin-utils": "^7.28.10",
+      "@babel/helper-validator-identifier": "^7.28.10",
+      "eslint-plugin-react": "^7.32.0"
+    }
   }
-}
