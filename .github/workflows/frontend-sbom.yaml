@@ -6,11 +6,8 @@ on:
     branches: [ main ]
 
 jobs:
-  sbom-scan:
+  sbom:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      security-events: write
 
     steps:
       - uses: actions/checkout@v4
@@ -24,20 +21,20 @@ jobs:
       - name: Generate SBOM
         run: npx @cyclonedx/cyclonedx-npm --output-file sbom.json
 
-      - name: Scan SBOM with Grype (Anchore upload-sarif)
+      - name: Scan SBOM with Grype (SARIF)
         uses: anchore/scan-action@v4
         with:
           sbom: sbom.json
-          severity-cutoff: high
-          fail-build: false
           output-format: sarif
+          fail-build: false
+          severity-cutoff: high
 
-  security-gate:
-    needs: sbom-scan
-    runs-on: ubuntu-latest
+      - name: Upload SARIF to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: results.sarif
 
-    steps:
-      - name: Fail pipeline due to detected vulnerabilities
+      - name: Fail pipeline if vulnerabilities found
         run: |
           echo "High or Critical vulnerabilities detected."
           exit 1
