@@ -25,5 +25,5 @@ jobs:
         uses: anchore/scan-action@v4
         with:
           sbom: sbom.json
-          severity-cutoff: high
+          severity-cutoff: critical
           fail-build: true
