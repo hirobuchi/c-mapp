@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      pull-requests: write
       security-events: write
 
     steps:
@@ -24,25 +25,43 @@ jobs:
       - name: Generate SBOM
         run: npx @cyclonedx/cyclonedx-npm --output-file sbom.json
 
-      - name: Scan SBOM with Grype (Anchore upload-sarif)
-        uses: anchore/scan-action@v4
-        with:
-          sbom: sbom.json
-          severity-cutoff: high
-          fail-build: false
-          output-format: sarif
-          only-fixed: true
-
-      - name: Scan SBOM With Grype (table output)
+      - name: Scan SBOM with Grype (only-fixed, table)
+        id: grype-scan
         run: |
-          grype sbom:sbom.json -o table --fail-on high || true
+          echo "Scanning SBOM for vulnerabilities (only FIXED-IN)"
+          grype sbom:sbom.json -o table --only-fixed > grype-table.txt || true
+          cat grype-table.txt
+          # Check if High/Critical found
+          if grep -q -E 'High|Critical' grype-table.txt; then
+            echo "vulnerable=true" >> $GITHUB_OUTPUT
+          else
+            echo "vulnerable=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Post PR comment with vulnerabilities
+        if: always()
+        uses: peter-evans/create-or-update-comment@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            ### SBOM Vulnerability Scan Results (High/Critical, only FIXED-IN)
+
+            \`\`\`
+            $(cat grype-table.txt)
+            \`\`\`
 
   security-gate:
     needs: sbom-scan
     runs-on: ubuntu-latest
 
     steps:
-      - name: Fail pipeline due to detected vulnerabilities
+      - name: Fail pipeline if High/Critical FIXED-IN vulnerabilities detected
+        if: needs.sbom-scan.outputs.vulnerable == 'true'
         run: |
-          echo "High or Critical vulnerabilities detected."
+          echo "High or Critical FIXED-IN vulnerabilities detected. Failing pipeline."
           exit 1
+
+      - name: Continue if no High/Critical FIXED-IN vulnerabilities
+        if: needs.sbom-scan.outputs.vulnerable == 'false'
+        run: echo "No High/Critical FIXED-IN vulnerabilities. Continuing."
