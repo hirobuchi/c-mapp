@@ -50,12 +50,16 @@ jobs:
         run: |
           FIXED_COUNT=$(jq '[.matches[]
             | select(.vulnerability.severity | test("High|Critical"))
-            | select(.vulnerability.fixedIn != null)
+            | select(.vulnerability.fix != null)
+            | select(.vulnerability.fix.versions | length > 0)
           ] | length' grype.json)
 
           UNFIXED_COUNT=$(jq '[.matches[]
             | select(.vulnerability.severity | test("High|Critical"))
-            | select(.vulnerability.fixedIn == null)
+            | select(
+                (.vulnerability.fix == null) or
+                (.vulnerability.fix.versions | length == 0)
+              )
           ] | length' grype.json)
 
           if [ "$FIXED_COUNT" -gt 0 ]; then
