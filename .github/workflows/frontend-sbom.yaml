@@ -32,27 +32,33 @@ jobs:
 
       - name: Scan SBOM with Grype
         id: grype-scan
+        shell: bash
         run: |
+          set -o pipefail
+
           echo "Scanning SBOM for vulnerabilities"
 
-          grype sbom:sbom.json -o json > grype.json || true
+          grype sbom:sbom.json -o json > grype.json || echo '{}' > grype.json
 
-          FIXED_COUNT=$(jq '[.matches[]
+          FIXED_COUNT=$(jq '[.matches[]?
             | select(.vulnerability.severity | test("High|Critical"))
             | select(.vulnerability.fixedIn != null)
           ] | length' grype.json)
 
-          UNFIXED_COUNT=$(jq '[.matches[]
+          UNFIXED_COUNT=$(jq '[.matches[]?
             | select(.vulnerability.severity | test("High|Critical"))
             | select(.vulnerability.fixedIn == null)
           ] | length' grype.json)
 
+          FIXED_COUNT=${FIXED_COUNT:-0}
+          UNFIXED_COUNT=${UNFIXED_COUNT:-0}
+
           if [ "$FIXED_COUNT" -gt 0 ]; then
-            echo "result=fixed" >> $GITHUB_OUTPUT
+            echo "result=fixed" >> "$GITHUB_OUTPUT"
           elif [ "$UNFIXED_COUNT" -gt 0 ]; then
-            echo "result=unfixed" >> $GITHUB_OUTPUT
+            echo "result=unfixed" >> "$GITHUB_OUTPUT"
           else
-            echo "result=none" >> $GITHUB_OUTPUT
+            echo "result=none" >> "$GITHUB_OUTPUT"
           fi
 
           if [ "$FIXED_COUNT" -gt 0 ]; then
@@ -64,9 +70,9 @@ jobs:
               | "| \(.artifact.name) | \(.artifact.version) | \(.vulnerability.fixedIn) | \(.artifact.type) | [\(.vulnerability.id)](https://github.com/advisories/\(.vulnerability.id)) | \(.vulnerability.severity) |"
             ' grype.json >> grype-table.md
 
-            echo "grype_table<<EOF" >> $GITHUB_OUTPUT
-            cat grype-table.md >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
+            echo "grype_table<<EOF" >> "$GITHUB_OUTPUT"
+            cat grype-table.md >> "$GITHUB_OUTPUT"
+            echo "EOF" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Post PR comment (FIXED-IN vulnerabilities)
