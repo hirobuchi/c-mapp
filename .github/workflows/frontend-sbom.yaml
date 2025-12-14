@@ -37,4 +37,5 @@ jobs:
       - name: Scan SBOM with Grype
         run: |
           grype sbom:sbom.json \
-            --fail-on High
+            --fail-on High \
+            --output table
