@@ -1,4 +1,4 @@
-name: Frontend SBOM
+name: Frontend SBOM-And-Scan
 
 on:
   pull_request:
@@ -37,5 +37,4 @@ jobs:
       - name: Scan SBOM with Grype
         run: |
           grype sbom:sbom.json \
-            --only-fixed \
             --fail-on High
