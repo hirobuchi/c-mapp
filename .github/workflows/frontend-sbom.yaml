@@ -13,10 +13,9 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-      security-events: write
 
     outputs:
-      result: ${{ steps.grype-scan.outputs.result }}
+      result: ${{ steps.evaluate.outputs.result }}
 
     steps:
       - uses: actions/checkout@v4
@@ -25,40 +24,39 @@ jobs:
         with:
           node-version: 20
 
-      - run: npm ci
+      - name: Install dependencies
+        run: npm ci
 
-      - name: Generate SBOM
-        run: npx @cyclonedx/cyclonedx-npm --output-file sbom.json
+      - name: Generate SBOM (CycloneDX)
+        run: |
+          npx @cyclonedx/cyclonedx-npm \
+            --spec-version 1.4 \
+            --output-file sbom.json
 
       - name: Install Grype
-        uses: anchore/scan-action@v3
-        with:
-          path: .
-          fail-build: false
-          output-format: json
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh \
+            | sudo sh -s -- -b /usr/local/bin
 
       - name: Scan SBOM with Grype
-        id: grype-scan
+        run: |
+          grype sbom:sbom.json \
+            --sbom-format cyclonedx \
+            -o json > grype.json || true
+
+      - name: Evaluate vulnerabilities
+        id: evaluate
         shell: bash
         run: |
-          set -o pipefail
-
-          echo "Scanning SBOM for vulnerabilities"
-
-          grype sbom:sbom.json -o json > grype.json || echo '{}' > grype.json
-
-          FIXED_COUNT=$(jq '[.matches[]?
+          FIXED_COUNT=$(jq '[.matches[]
             | select(.vulnerability.severity | test("High|Critical"))
             | select(.vulnerability.fixedIn != null)
           ] | length' grype.json)
 
-          UNFIXED_COUNT=$(jq '[.matches[]?
+          UNFIXED_COUNT=$(jq '[.matches[]
             | select(.vulnerability.severity | test("High|Critical"))
             | select(.vulnerability.fixedIn == null)
           ] | length' grype.json)
-
-          FIXED_COUNT=${FIXED_COUNT:-0}
-          UNFIXED_COUNT=${UNFIXED_COUNT:-0}
 
           if [ "$FIXED_COUNT" -gt 0 ]; then
             echo "result=fixed" >> "$GITHUB_OUTPUT"
@@ -68,22 +66,8 @@ jobs:
             echo "result=none" >> "$GITHUB_OUTPUT"
           fi
 
-          if [ "$FIXED_COUNT" -gt 0 ]; then
-            echo "| NAME | INSTALLED | FIXED-IN | TYPE | VULNERABILITY | SEVERITY |" > grype-table.md
-            echo "|------|----------|----------|------|---------------|----------|" >> grype-table.md
-            jq -r '.matches[]
-              | select(.vulnerability.severity | test("High|Critical"))
-              | select(.vulnerability.fixedIn != null)
-              | "| \(.artifact.name) | \(.artifact.version) | \(.vulnerability.fixedIn) | \(.artifact.type) | [\(.vulnerability.id)](https://github.com/advisories/\(.vulnerability.id)) | \(.vulnerability.severity) |"
-            ' grype.json >> grype-table.md
-
-            echo "grype_table<<EOF" >> "$GITHUB_OUTPUT"
-            cat grype-table.md >> "$GITHUB_OUTPUT"
-            echo "EOF" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Post PR comment (FIXED-IN vulnerabilities)
-        if: github.event_name == 'pull_request' && steps.grype-scan.outputs.result == 'fixed'
+        if: github.event_name == 'pull_request' && steps.evaluate.outputs.result == 'fixed'
         uses: peter-evans/create-or-update-comment@v5
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -92,14 +76,18 @@ jobs:
             ### ❌ High / Critical vulnerabilities with FIXED-IN detected
 
             The following vulnerabilities have known fixed versions.
-            Please upgrade the affected dependencies.
+            CI is blocked until dependencies are updated.
 
             ```
-            ${{ steps.grype-scan.outputs.grype_table }}
+            $(jq -r '.matches[]
+              | select(.vulnerability.severity | test("High|Critical"))
+              | select(.vulnerability.fixedIn != null)
+              | "\(.artifact.name) \(.artifact.version) -> fixed in \(.vulnerability.fixedIn) (\(.vulnerability.id))"
+            ' grype.json)
             ```
 
       - name: Post PR comment (no FIXED-IN)
-        if: github.event_name == 'pull_request' && steps.grype-scan.outputs.result == 'unfixed'
+        if: github.event_name == 'pull_request' && steps.evaluate.outputs.result == 'unfixed'
         uses: peter-evans/create-or-update-comment@v5
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -107,23 +95,23 @@ jobs:
           body: |
             ### ⚠️ High / Critical vulnerabilities detected (no FIXED-IN)
 
-            High or Critical severity vulnerabilities were detected,
-            but **no fixed version is currently available**.
+            High or Critical vulnerabilities were detected, but **no fixed
+            versions are currently available**.
 
-            - CI is not failed
-            - Please monitor upstream advisories and update once a fix is released
+            CI is allowed to proceed.
+            Please monitor upstream advisories.
 
   security-gate:
     needs: sbom-scan
     runs-on: ubuntu-latest
 
     steps:
-      - name: Fail pipeline if FIXED-IN vulnerabilities detected
+      - name: Fail pipeline if FIXED-IN vulnerabilities exist
         if: needs.sbom-scan.outputs.result == 'fixed'
         run: |
-          echo "High/Critical vulnerabilities with FIXED-IN detected."
+          echo "Blocking CI due to fixable High/Critical vulnerabilities."
           exit 1
 
-      - name: Continue otherwise
+      - name: Continue pipeline
         if: needs.sbom-scan.outputs.result != 'fixed'
-        run: echo "No FIXED-IN High/Critical vulnerabilities. Continuing."
+        run: echo "No fixable High/Critical vulnerabilities detected."
