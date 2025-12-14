@@ -8,14 +8,10 @@ on:
     - cron: '0 0 * * *'
 
 jobs:
-  sbom-scan:
+  sbom-and-scan:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: write
-
-    outputs:
-      result: ${{ steps.evaluate.outputs.result }}
 
     steps:
       - uses: actions/checkout@v4
@@ -38,84 +34,9 @@ jobs:
           curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh \
             | sudo sh -s -- -b /usr/local/bin
 
-      - name: Scan SBOM with Grype
+      - name: Scan SBOM with Grype (fail only if fix is available)
         run: |
           grype sbom:sbom.json \
             --sbom-format cyclonedx \
-            -o json > grype.json || true
-
-      - name: Evaluate vulnerabilities
-        id: evaluate
-        shell: bash
-        run: |
-          FIXED_COUNT=$(jq '[.matches[]
-            | select(.vulnerability.severity | test("High|Critical"))
-            | select(.vulnerability.fix != null)
-            | select(.vulnerability.fix.versions | length > 0)
-          ] | length' grype.json)
-
-          UNFIXED_COUNT=$(jq '[.matches[]
-            | select(.vulnerability.severity | test("High|Critical"))
-            | select(
-                (.vulnerability.fix == null) or
-                (.vulnerability.fix.versions | length == 0)
-              )
-          ] | length' grype.json)
-
-          if [ "$FIXED_COUNT" -gt 0 ]; then
-            echo "result=fixed" >> "$GITHUB_OUTPUT"
-          elif [ "$UNFIXED_COUNT" -gt 0 ]; then
-            echo "result=unfixed" >> "$GITHUB_OUTPUT"
-          else
-            echo "result=none" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Post PR comment (FIXED-IN vulnerabilities)
-        if: github.event_name == 'pull_request' && steps.evaluate.outputs.result == 'fixed'
-        uses: peter-evans/create-or-update-comment@v5
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          issue-number: ${{ github.event.pull_request.number }}
-          body: |
-            ### ❌ High / Critical vulnerabilities with FIXED-IN detected
-
-            The following vulnerabilities have known fixed versions.
-            CI is blocked until dependencies are updated.
-
-            ```
-            $(jq -r '.matches[]
-              | select(.vulnerability.severity | test("High|Critical"))
-              | select(.vulnerability.fixedIn != null)
-              | "\(.artifact.name) \(.artifact.version) -> fixed in \(.vulnerability.fixedIn) (\(.vulnerability.id))"
-            ' grype.json)
-            ```
-
-      - name: Post PR comment (no FIXED-IN)
-        if: github.event_name == 'pull_request' && steps.evaluate.outputs.result == 'unfixed'
-        uses: peter-evans/create-or-update-comment@v5
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          issue-number: ${{ github.event.pull_request.number }}
-          body: |
-            ### ⚠️ High / Critical vulnerabilities detected (no FIXED-IN)
-
-            High or Critical vulnerabilities were detected, but **no fixed
-            versions are currently available**.
-
-            CI is allowed to proceed.
-            Please monitor upstream advisories.
-
-  security-gate:
-    needs: sbom-scan
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Fail pipeline if FIXED-IN vulnerabilities exist
-        if: needs.sbom-scan.outputs.result == 'fixed'
-        run: |
-          echo "Blocking CI due to fixable High/Critical vulnerabilities."
-          exit 1
-
-      - name: Continue pipeline
-        if: needs.sbom-scan.outputs.result != 'fixed'
-        run: echo "No fixable High/Critical vulnerabilities detected."
+            --fail-on High \
+            --only-fixed
