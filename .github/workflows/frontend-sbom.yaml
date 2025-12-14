@@ -30,6 +30,13 @@ jobs:
       - name: Generate SBOM
         run: npx @cyclonedx/cyclonedx-npm --output-file sbom.json
 
+      - name: Install Grype
+        uses: anchore/scan-action@v3
+        with:
+          path: .
+          fail-build: false
+          output-format: json
+
       - name: Scan SBOM with Grype
         id: grype-scan
         shell: bash
