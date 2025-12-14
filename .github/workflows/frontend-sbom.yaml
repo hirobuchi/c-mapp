@@ -1,4 +1,4 @@
-name: Frontend SBOM
+name: Frontend SBOM-And-Scan
 
 on:
   pull_request:
@@ -8,12 +8,10 @@ on:
     - cron: '0 0 * * *'
 
 jobs:
-  sbom-scan:
+  sbom-and-scan:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: write
-      security-events: write
 
     steps:
       - uses: actions/checkout@v4
@@ -22,65 +20,21 @@ jobs:
         with:
           node-version: 20
 
-      - run: npm ci
+      - name: Install dependencies
+        run: npm ci
 
-      - name: Generate SBOM
-        run: npx @cyclonedx/cyclonedx-npm --output-file sbom.json
+      - name: Generate SBOM (CycloneDX)
+        run: |
+          npx @cyclonedx/cyclonedx-npm \
+            --spec-version 1.4 \
+            --output-file sbom.json
+
+      - name: Install Grype
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh \
+            | sudo sh -s -- -b /usr/local/bin
 
       - name: Scan SBOM with Grype
-        id: grype-scan
         run: |
-          echo "Scanning SBOM for vulnerabilities"
-
-          # JSON出力
-          grype sbom:sbom.json -o json > grype.json || true
-
-          # CI fail 判定用：High/Critical + FIXED-IN あり
-          FIXED_PRESENT=$(jq '[.matches[] | select(.vulnerability.severity | test("High|Critical")) | select(.vulnerability.fixedIn != null)] | length' grype.json)
-          if [ "$FIXED_PRESENT" -gt 0 ]; then
-            echo "vulnerable=true" >> $GITHUB_OUTPUT
-          else
-            echo "vulnerable=false" >> $GITHUB_OUTPUT
-          fi
-
-          # PRコメント用：High/Criticalすべて（FIXED-IN あり/なし）
-          echo "| NAME | INSTALLED | FIXED-IN | TYPE | VULNERABILITY | SEVERITY |" > grype-table.md
-          echo "|------|----------|----------|------|---------------|----------|" >> grype-table.md
-          jq -r '.matches[] | select(.vulnerability.severity | test("High|Critical")) |
-            "| \(.artifact.name) | \(.artifact.version) | \(.vulnerability.fixedIn // "-") | \(.artifact.type) | [\(.vulnerability.id)](https://github.com/advisories/\(.vulnerability.id)) | \(.vulnerability.severity) |"' grype.json >> grype-table.md
-
-          echo "grype_table<<EOF" >> $GITHUB_OUTPUT
-          cat grype-table.md >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: Post PR comment with vulnerabilities
-        if: github.event_name == 'pull_request'
-        uses: peter-evans/create-or-update-comment@v5
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          issue-number: ${{ github.event.pull_request.number }}
-          body: |
-            ### SBOM Vulnerability Scan Results (High/Critical)
-
-            **Note:**  
-            - CI fail occurs only for vulnerabilities with a known FIXED-IN version  
-            - Vulnerabilities without a FIXED-IN version are shown for visibility
-
-            ```
-            ${{ steps.grype-scan.outputs.grype_table }}
-            ```
-
-  security-gate:
-    needs: sbom-scan
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Fail pipeline if High/Critical FIXED-IN vulnerabilities detected
-        if: needs.sbom-scan.outputs.vulnerable == 'true'
-        run: |
-          echo "High or Critical FIXED-IN vulnerabilities detected. Failing pipeline."
-          exit 1
-
-      - name: Continue if no High/Critical FIXED-IN vulnerabilities
-        if: needs.sbom-scan.outputs.vulnerable == 'false'
-        run: echo "No High/Critical FIXED-IN vulnerabilities. Continuing."
+          grype sbom:sbom.json \
+            --fail-on High
