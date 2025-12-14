@@ -34,9 +34,8 @@ jobs:
           curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh \
             | sudo sh -s -- -b /usr/local/bin
 
-      - name: Scan SBOM with Grype (fail only if fix is available)
+      - name: Scan SBOM with Grype
         run: |
           grype sbom:sbom.json \
-            --sbom-format cyclonedx \
-            --fail-on High \
-            --only-fixed
+            --only-fixed \
+            --fail-on High
