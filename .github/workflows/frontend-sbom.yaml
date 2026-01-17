@@ -36,10 +36,11 @@ jobs:
             | sudo sh -s -- -b /usr/local/bin
 
       - name: Scan SBOM with Grype
+        id: grype
         run: |
           grype sbom:sbom.json \
             --fail-on High \
-            --output table
+            --output table | tee grype-output.txt
         continue-on-error: true
       - name: Create issue if vulnerabilities found
         if: steps.grype.outcome == 'failure'
