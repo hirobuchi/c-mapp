@@ -12,6 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      issues: write
 
     steps:
       - uses: actions/checkout@v4
@@ -35,7 +36,61 @@ jobs:
             | sudo sh -s -- -b /usr/local/bin
 
       - name: Scan SBOM with Grype
+        id: grype
         run: |
+          set -o pipefail
           grype sbom:sbom.json \
             --fail-on High \
-            --output table
+            --output table | tee grype-output.txt
+        continue-on-error: true
+      - name: Create or update issue if vulnerabilities found
+        if: steps.grype.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const output = fs.readFileSync('grype-output.txt', 'utf8');
+            const issueTitle = '🔴 Frontend脆弱性検出: High/CRITICAL脆弱性が見つかりました';
+            const timestamp = new Date().toISOString();
+            
+            // 既存Issue検索
+            const { data: existingIssues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'vulnerability'
+            });
+            
+            const existingIssue = existingIssues.find(issue => issue.title === issueTitle);
+            const body = `## 脆弱性が検出されました\n\n**最終検出日時**: ${timestamp}\n\n\`\`\`\n${output}\n\`\`\``;
+            
+            if (existingIssue) {
+              // Issue本体を最新スキャン結果で更新
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existingIssue.number,
+                body: body
+              });
+              
+              // コメントで検出履歴を記録
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existingIssue.number,
+                body: `🔍 スキャン実行: ${timestamp}`
+              });
+              
+              console.log(`Issue #${existingIssue.number} を更新しました`);
+            } else {
+              // 新規Issue作成
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: issueTitle,
+                body: body,
+                labels: ['security', 'vulnerability']
+              });
+              
+              console.log('新規Issue を作成しました');
+            }
