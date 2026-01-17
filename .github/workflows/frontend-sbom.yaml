@@ -38,7 +38,7 @@ jobs:
       - name: Scan SBOM with Grype
         id: grype
         run: |
-          set -o pipefail \
+          set -o pipefail
           grype sbom:sbom.json \
             --fail-on High \
             --output table | tee grype-output.txt
