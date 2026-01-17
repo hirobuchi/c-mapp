@@ -12,6 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      issues: write
 
     steps:
       - uses: actions/checkout@v4
@@ -39,3 +40,19 @@ jobs:
           grype sbom:sbom.json \
             --fail-on High \
             --output table
+        continue-on-error: true
+      - name: Create issue if vulnerabilities found
+        if: steps.grype.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const output = fs.readFileSync('grype-output.txt', 'utf8');
+            
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🔴 Frontend脆弱性検出: High/CRITICAL脆弱性が見つかりました',
+              body: `## 脆弱性が検出されました\n\n\`\`\`\n${output}\n\`\`\``,
+              labels: ['security', 'vulnerability']
+            });
