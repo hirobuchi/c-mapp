@@ -52,7 +52,8 @@ jobs:
       - name: Save scan result
         if: always()
         run: |
-          echo "${{ steps.grype.outputs.json }}" > grype-result.json
+          echo "Output file path: ${{ steps.grype.outputs.json }}"
+          cp "${{ steps.grype.outputs.json }}" grype-result.json
           cat grype-result.json
 
       - name: Create or Update Issue if High/Critical found
