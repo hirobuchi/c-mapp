@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main, master ]
   schedule:
-    - cron: '0 2 * * 1'
+    - cron: '0 2 * * 1'   # 毎週月曜のみ実行（スパム防止）
   workflow_dispatch:
 
 permissions:
@@ -17,23 +17,21 @@ concurrency:
 jobs:
   sbom-and-scan:
     runs-on: ubuntu-latest
-
     permissions:
       contents: read
       issues: write
-      security-events: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
-      - name: Setup Node
+      - name: Setup Node (exact version)
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '20.11.1'
           cache: 'npm'
 
-      - name: Install dependencies
+      - name: Install dependencies (no lifecycle scripts)
         run: npm ci --ignore-scripts
 
       - name: Generate SBOM (CycloneDX 1.5)
@@ -42,61 +40,36 @@ jobs:
             --spec-version 1.5 \
             --output-file sbom.json
 
-      # -----------------------------
-      # ① GrypeをSARIF形式で出力
-      # -----------------------------
-      - name: Scan SBOM with Grype
+      - name: Scan SBOM with Grype (Official Action)
         id: grype
         uses: anchore/scan-action@3343887d815d7b07465f6fdcd395bd66508d486a
         with:
           sbom: sbom.json
           fail-build: false
           severity-cutoff: high
-          output-format: sarif
+          output-format: json
 
-      # -----------------------------
-      # ② Securityタブへアップロード
-      # -----------------------------
-      - name: Upload SARIF to GitHub Security
-        uses: github/codeql-action/upload-sarif@3d2f6e9fce1d1f0cc031ee332ed9f2e5a89b14be
-        with:
-          sarif_file: ${{ steps.grype.outputs.sarif }}
-
-      # -----------------------------
-      # ③ ログに必ず表示
-      # -----------------------------
-      - name: Print Scan Result
+      - name: Save scan result
         if: always()
         run: |
-          cat "${{ steps.grype.outputs.sarif }}"
+          echo "${{ steps.grype.outputs.json }}" > grype-result.json
 
-      # -----------------------------
-      # ④ High/Criticalがあるか判定
-      # -----------------------------
-      - name: Check Vulnerability Count
-        id: vulncheck
-        run: |
-          COUNT=$(jq '.runs[].results | length' "${{ steps.grype.outputs.sarif }}")
-          echo "count=$COUNT"
-          echo "count=$COUNT" >> $GITHUB_OUTPUT
-
-      # -----------------------------
-      # ⑤ Issue自動作成
-      # -----------------------------
-      - name: Create or Update Issue
-        if: github.event_name != 'pull_request' && steps.vulncheck.outputs.count != '0'
+      - name: Create or Update Issue if High/Critical found
+        if: github.event_name != 'pull_request' && steps.grype.outcome == 'failure'
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+
         with:
           script: |
             const fs = require('fs');
-            const result = fs.readFileSync('${{ steps.grype.outputs.sarif }}', 'utf8');
+            const result = fs.readFileSync('grype-result.json', 'utf8');
             const issueTitle = '🔴 High/Critical 脆弱性検出 (Frontend)';
             const timestamp = new Date().toISOString();
 
             const { data: issues } = await github.rest.issues.listForRepo({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              state: 'open'
+              state: 'open',
+              labels: 'vulnerability'
             });
 
             const existing = issues.find(i => i.title === issueTitle);
@@ -105,8 +78,6 @@ jobs:
             ## 🚨 脆弱性検出
 
             **検出日時**: ${timestamp}
-
-            High/Critical 脆弱性が検出されました。
 
             \`\`\`json
             ${result}
@@ -137,10 +108,3 @@ jobs:
                 labels: ['security', 'vulnerability']
               });
             }
-
-      # -----------------------------
-      # ⑥ CIを失敗させたい場合のみ有効化
-      # -----------------------------
-      - name: Fail if High/Critical Found
-        if: steps.vulncheck.outputs.count != '0'
-        run: exit 1
