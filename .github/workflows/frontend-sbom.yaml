@@ -42,7 +42,7 @@ jobs:
 
       - name: Scan SBOM with Grype (Official Action)
         id: grype
-        uses: anchore/scan-action@3343887d815d7b07465f6fdcd395bd66508d486a
+        uses: anchore/scan-action@f6601287cdb1efc985d6b765bbf99cb4c0ac29d8
         with:
           sbom: sbom.json
           fail-build: false
