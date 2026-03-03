@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main, master ]
   schedule:
-    - cron: '0 2 * * 1'   # 毎週月曜のみ実行（スパム防止）
+    - cron: '0 2 * * 1'
   workflow_dispatch:
 
 permissions:
@@ -53,6 +53,7 @@ jobs:
         if: always()
         run: |
           echo "${{ steps.grype.outputs.json }}" > grype-result.json
+          cat grype-result.json
 
       - name: Create or Update Issue if High/Critical found
         if: github.event_name != 'pull_request' && steps.grype.outcome == 'failure'
