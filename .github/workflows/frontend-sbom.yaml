@@ -56,8 +56,15 @@ jobs:
           cp "${{ steps.grype.outputs.json }}" grype-result.json
           cat grype-result.json
 
+      - name: Count High/Critical vulnerabilities
+        id: vulncheck
+        run: |
+          COUNT=$(jq '[.matches[] | select(.vulnerability.severity == "High" or .vulnerability.severity == "Critical")] | length' grype-result.json)
+          echo "High/Critical count: $COUNT"
+          echo "count=$COUNT" >> $GITHUB_OUTPUT
+
       - name: Create or Update Issue if High/Critical found
-        if: github.event_name != 'pull_request' && steps.grype.outcome == 'failure'
+        if: github.event_name != 'pull_request' && steps.vulncheck.outputs.count != '0'
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
 
         with:
