@@ -53,7 +53,13 @@ jobs:
         run: |
           echo "Output file path: ${{ steps.grype.outputs.json }}"
           cp "${{ steps.grype.outputs.json }}" grype-result.json
-          cat grype-result.json
+
+      - name: Upload scan result
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        with:
+          name: grype-result
+          path: grype-result.json
 
   create-or-update-issue:
     needs: sbom-and-scan
@@ -62,16 +68,66 @@ jobs:
     permissions:
       issues: write
     steps:
+      - name: Download scan result
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3
+        with:
+          name: grype-result
+
       - name: Create or Update Issue if High/Critical found
-        if: github.event_name != 'pull_request' && steps.vulncheck.outputs.count != '0'
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
 
         with:
           script: |
             const fs = require('fs');
-            const result = fs.readFileSync('grype-result.json', 'utf8');
+
             const issueTitle = '🔴 High/Critical 脆弱性検出 (Frontend)';
             const timestamp = new Date().toISOString();
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            const raw = fs.readFileSync('grype-result.json', 'utf8');
+            const data = JSON.parse(raw);
+
+            function sanitize(str) {
+              return String(str).replace(/\|/g, '\\|');
+            }
+
+            const findings = (data.matches || [])
+              .filter(m =>
+                m.vulnerability &&
+                ['High', 'Critical'].includes(m.vulnerability.severity)
+              )
+              .map(m => ({
+                severity: sanitize(m.vulnerability.severity),
+                id: sanitize(m.vulnerability.id),
+                pkg: sanitize(m.artifact?.name || 'unknown'),
+                version: sanitize(m.artifact?.version || 'unknown')
+              }));
+
+            const tableHeader = [
+              '| Severity | Vulnerability | Package | Version |',
+              '|----------|--------------|---------|---------|'
+            ].join('\n');
+
+            const tableRows = findings
+              .slice(0, 20)
+              .map(f =>
+                `| ${f.severity} | ${f.id} | ${f.pkg} | ${f.version} |`
+              )
+              .join('\n');
+
+            const body = `
+              ## 🚨 High/Critical 脆弱性検出
+
+              **検出数**: ${findings.length}
+              **検出日時**: ${timestamp}
+
+              ${tableHeader}
+              ${tableRows}
+
+              ※ 上位20件のみ表示  
+              🔎 詳細（Artifacts含む）:
+              ${runUrl}
+              `;
 
             const { data: issues } = await github.rest.issues.listForRepo({
               owner: context.repo.owner,
@@ -81,16 +137,6 @@ jobs:
             });
 
             const existing = issues.find(i => i.title === issueTitle);
-
-            const body = `
-            ## 🚨 脆弱性検出
-
-            **検出日時**: ${timestamp}
-
-            \`\`\`json
-            ${result}
-            \`\`\`
-            `;
 
             if (existing) {
               await github.rest.issues.update({
