@@ -19,7 +19,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      issues: write
 
     steps:
       - name: Checkout
@@ -36,7 +35,7 @@ jobs:
 
       - name: Generate SBOM (CycloneDX 1.5)
         run: |
-          npx @cyclonedx/cyclonedx-npm \
+          npx --no-install @cyclonedx/cyclonedx-npm \
             --spec-version 1.5 \
             --output-file sbom.json
 
@@ -45,7 +44,7 @@ jobs:
         uses: anchore/scan-action@f6601287cdb1efc985d6b765bbf99cb4c0ac29d8
         with:
           sbom: sbom.json
-          fail-build: false
+          fail-build: true
           severity-cutoff: high
           output-format: json
 
@@ -56,13 +55,11 @@ jobs:
           cp "${{ steps.grype.outputs.json }}" grype-result.json
           cat grype-result.json
 
-      - name: Count High/Critical vulnerabilities
-        id: vulncheck
-        run: |
-          COUNT=$(jq '[.matches[] | select(.vulnerability.severity == "High" or .vulnerability.severity == "Critical")] | length' grype-result.json)
-          echo "High/Critical count: $COUNT"
-          echo "count=$COUNT" >> $GITHUB_OUTPUT
-
+  create-or-update-issue:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
       - name: Create or Update Issue if High/Critical found
         if: github.event_name != 'pull_request' && steps.vulncheck.outputs.count != '0'
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
